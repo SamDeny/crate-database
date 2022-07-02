@@ -192,7 +192,7 @@ class SchemaBuilder
 
         // Updated
         if ($this->updated) {
-            $properties[$this->created] = [
+            $properties[$this->updated] = [
                 'type' => 'string',
                 'format' => 'date-time',
                 'internal' => true

@@ -2,7 +2,10 @@
 
 namespace Crate\Database\Migrations;
 
+use Crate\Database\Properties\Property;
+use Crate\Database\Properties\StringProperty;
 use Crate\Database\Schema;
+use stdClass;
 
 class SchemaEditor extends SchemaBuilder
 {
@@ -80,13 +83,22 @@ class SchemaEditor extends SchemaBuilder
         if (!property_exists($this->originalProperties, $name)) {
             throw new \Exception("The property name '$name' does not exist."); //@todo
         }
+        $namespace = substr(Property::class, 0, strrpos(Property::class, '\\')+1);
 
-        $property = $this->originalProperties[$name];
-        $propertyClass = ucfirst($property->type) . 'Property';
+        $property = $this->originalProperties->$name;
+        $propertyClass = $namespace. ucfirst($property->type) . 'Property';
 
         // Create Instance
-        $instance = new $propertyClass;
+        $instance = new $propertyClass($name);
         foreach ($property AS $key => $value) {
+            if ($key === 'default') {
+                if ($value instanceof stdClass) {
+                    $value = (array) $value;
+                } else if (is_string($value) && ($value[0] === '[' || $value[0] === '{')) {
+                    $value = json_decode($value, true);
+                }
+            }
+
             if (method_exists($instance, $key)) {
                 $instance->{$key}($value);
             }
@@ -135,6 +147,51 @@ class SchemaEditor extends SchemaBuilder
     {
         $this->changedProperties[] = ['remove', $old];
         return $this;
+    }
+
+    /**
+     * Convert SchemaEditor to SchemaBuilder
+     *
+     * @param string|null $name
+     * @return SchemaBuilder
+     */
+    public function convertToBuilder(?string $name = null): SchemaBuilder
+    {
+        $schema = new SchemaBuilder($name? $name: $this->name);
+
+        $schema->driver = $this->driver;
+        $schema->storage = $this->storage;
+        $schema->id = $this->id;
+        $schema->title = $this->title;
+        $schema->description = $this->description;
+        $schema->primaryKey = $this->primaryKey;
+        $schema->primaryKeyFormat = $this->primaryKeyFormat;
+        $schema->created = $this->created;
+        $schema->branches = $this->branches;
+        $schema->history = $this->history;
+        $schema->document = $this->document;
+
+        $removed = array_filter(array_map(function ($action) {
+            if ($action[0] === 'rename') {
+                return $action[1];
+            } else if ($action[0] === 'remove') {
+                return $action[1];
+            } else if ($action[0] === 'replace') {
+                return $action[1] !== $action[2]? $action[1]: null;
+            } else {
+                return null;
+            }
+        }, $this->changedProperties));
+
+        foreach ($this->originalProperties AS $name => $_) {
+            if (in_array($name, $removed)) {
+                continue;
+            }
+            $schema->properties[$name] = $this->property($name);
+        }
+        $schema->properties = array_merge($schema->properties, $this->properties);
+
+        return $schema;
     }
 
 }
