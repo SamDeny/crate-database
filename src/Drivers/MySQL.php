@@ -12,15 +12,63 @@ use Crate\Database\Properties\StringProperty;
 use Crate\Database\Query;
 use Crate\Database\Schema;
 
-class MongoDB implements DriverContract
+class MySQL implements DriverContract
 {
 
     /**
-     * @inheritDoc
+     * MySQLi Connection
+     *
+     * @var \MySQLi|null
      */
-    public function getConnection(): mixed
-    {
+    protected ?\MySQLi $connection;
 
+    /**
+     * Create a new MySQLi driver instance.
+     *
+     * @param string $hostname
+     * @param string $username
+     * @param string|null $password
+     * @param string $database
+     * @param integer $port
+     * @param string|null $socket
+     */
+    public function __construct(
+        string $hostname, 
+        string $username,
+        ?string $password, 
+        string $database,
+        int $port = 3306, 
+        ?string $socket = null
+    ) {
+        $this->connection = new \MySQLi(
+            $this->host = $hostname,
+            $this->user = $username,
+            $this->pass = ($password ?? ''),
+            $this->name = $database,
+            $this->port = $port,
+            $this->socket = $socket
+        );
+    }
+
+    /**
+     * Clear current MySQLi driver instance.
+     */
+    public function __destruct()
+    {
+        if ($this->connection) {
+            $this->connection->close();
+            $this->connection = null;
+        }
+    }
+
+    /**
+     * Get Driver connection.
+     *
+     * @return \MySQLi|null
+     */
+    public function getConnection(): ?\MySQLi
+    {
+        return $this->connection;
     }
     
     /**

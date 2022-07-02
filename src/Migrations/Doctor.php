@@ -45,7 +45,7 @@ class Doctor
      */
     public function lastError(): ?string
     {
-        return $this->driver->getLastError();
+        return $this->driver->getLastError() . ' Last Query: ' . $this->driver->getLastQuery();
     }
 
     /**
@@ -94,6 +94,8 @@ class Doctor
         // Handle Migrations
         foreach ($migrator->getMigrations() AS $action) {
             $type = array_shift($action);
+
+            echo $type;
 
             if ($type === 'create') {
                 $builder = new SchemaBuilder(array_shift($action));

@@ -12,21 +12,21 @@ class SchemaEditor extends SchemaBuilder
      *
      * @var Schema
      */
-    protected Schema $originalSchema;
+    public Schema $originalSchema;
 
     /**
      * Original Properties
      *
      * @var object
      */
-    protected object $originalProperties;
+    public object $originalProperties;
 
     /**
      * Changed Properties
      *
      * @var array
      */
-    protected array $changedProperties = [];
+    public array $changedProperties = [];
 
     /**
      * Create a new SchemaEditor instance.

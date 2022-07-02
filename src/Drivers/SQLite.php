@@ -44,6 +44,13 @@ class SQLite implements DriverContract
     protected ?\SQLite3 $connection = null;
 
     /**
+     * SQLite3 Version
+     * 
+     * @var ?string
+     */
+    protected ?string $sqliteVersion = null;
+
+    /**
      * Switch if in transaction.
      *
      * @var boolean
@@ -112,6 +119,7 @@ class SQLite implements DriverContract
     {
         if ($this->connection) {
             $this->connection->close();
+            $this->connection = null;
         }
     }
 
@@ -123,6 +131,19 @@ class SQLite implements DriverContract
     public function getConnection(): ?\SQLite3
     {
         return $this->connection;
+    }
+
+    /**
+     * Get SQLite version
+     *
+     * @return string
+     */
+    public function getVersion(): string
+    {
+        if ($this->sqliteVersion === null) {
+            $this->sqliteVersion = $this->connection->query('SELECT sqlite_version() as ver;')->fetchArray()['ver'];
+        }
+        return $this->sqliteVersion;
     }
 
     /**
@@ -171,6 +192,66 @@ class SQLite implements DriverContract
     }
 
     /**
+     * Build Column
+     *
+     * @param string $name
+     * @param [type] $property
+     * @return string
+     */
+    protected function buildColumn(string $name, $property): string
+    {
+        $constraints = [];
+
+        // Evaluate Type
+        if ($property instanceof NumberProperty) {
+            $type = 'REAL';
+        } else if ($property instanceof IntegerProperty || $property instanceof BooleanProperty) {
+            $type = 'INTEGER';
+        } else {
+            $type = 'TEXT';
+        }
+
+        // Required Constraint
+        if (isset($property->required) && $property->required === true) {
+            $constraints[] = 'NOT NULL';
+        } else {
+            $constraints[] = 'NULL';
+        }
+
+        // Unique Constraint
+        if (isset($property->unique)) {
+            $constraints[] = 'UNIQUE';
+        }
+
+        // Default Constraint
+        if (isset($property->default)) {
+            if ($property->default === NULL) {
+                $constraints[] = "DEFAULT NULL";
+            } else {
+                if ($property instanceof StringProperty) {
+                    $constraints[] = "DEFAULT '{$property->default}'";
+                } else if ($property instanceof BooleanProperty) {
+                    $constraints[] = "DEFAULT " . ($property->default? '1': '0');
+                } else {
+                    if (is_array($property->default) || is_object($property->value)) {
+                        $default = "'". json_encode($property->default) ."'";
+                    } else {
+                        $default = $property->default;
+                    }
+                    $constraints[] = "DEFAULT {$default}";
+                }
+            }
+        }
+
+        // Check Constraint
+        if ($property instanceof IntegerProperty || $property instanceof NumberProperty) {
+        }
+
+        // Return Column
+        return trim("\"{$name}\" $type " . implode(' ', $constraints));
+    }
+
+    /**
      * @inheritDoc
      */
     public function create(SchemaBuilder $schema): bool
@@ -188,55 +269,7 @@ class SQLite implements DriverContract
 
         // Fields
         foreach ($schema->properties AS $name => $property) {
-            $constraints = [];
-
-            // Evaluate Type
-            if ($property instanceof NumberProperty) {
-                $type = 'REAL';
-            } else if ($property instanceof IntegerProperty || $property instanceof BooleanProperty) {
-                $type = 'INTEGER';
-            } else {
-                $type = 'TEXT';
-            }
-
-            // Required Constraint
-            if (isset($property->required) && $property->required === true) {
-                $constraints[] = 'NOT NULL';
-            } else {
-                $constraints[] = 'NULL';
-            }
-
-            // Unique Constraint
-            if (isset($property->unique)) {
-                $constraints[] = 'UNIQUE';
-            }
-
-            // Default Constraint
-            if (isset($property->default)) {
-                if ($property->default === NULL) {
-                    $constraints[] = "DEFAULT NULL";
-                } else {
-                    if ($property instanceof StringProperty) {
-                        $constraints[] = "DEFAULT '{$property->default}'";
-                    } else if ($property instanceof BooleanProperty) {
-                        $constraints[] = "DEFAULT " . ($property->default? '1': '0');
-                    } else {
-                        if (is_array($property->default) || is_object($property->value)) {
-                            $default = "'". json_encode($property->default) ."'";
-                        } else {
-                            $default = $property->default;
-                        }
-                        $constraints[] = "DEFAULT {$default}";
-                    }
-                }
-            }
-
-            // Check Constraint
-            if ($property instanceof IntegerProperty || $property instanceof NumberProperty) {
-            }
-
-            // Add Field
-            $fields[$name] = trim("\"{$name}\" $type " . implode(' ', $constraints));
+            $fields[$name] = $this->buildColumn($name, $property);
         }
         if ($schema->created) {
             $fields[$schema->created] = "'$schema->created' TEXT DEFAULT (DATETIME('NOW'))";
@@ -275,19 +308,144 @@ class SQLite implements DriverContract
     /**
      * @inheritDoc
      */
-    public function alter(SchemaEditor $editor): bool
+    public function alter(SchemaEditor $schema): bool
     {
+        $remove = [];
 
-        // Add New Columns
+        // Add Columns
+        foreach ($schema->properties AS $name => $property) {
+            $field = $this->buildColumn($name, $property);
+            $query = "ALTER TABLE {$schema->name} ADD COLUMN $field";
+            if ($this->execute($query) === false) {
+                return false;
+            }
+        }
 
-        // Rename Columns
+        // Created internal field
+        if ($schema->created !== $schema->originalSchema->created) {
+            //@todo -> Check if created has added or changed
 
-        // Replace Columns
-            // -> add new columns
-            // -> execute converter
-            // -> remove old columns
+        }
+
+        // Updated Internal field
+        if ($schema->updated !== $schema->originalSchema->updated) {
+            //@todo -> Check if updated has added or changed
+
+        }
+
+        // Change columns
+        foreach ($schema->changedProperties AS $set) {
+            $action = array_shift($set);
+
+            if ($action === 'rename') {
+                $column = array_shift($set);
+                $newname = array_shift($set);
+                if ($this->execute("ALTER TABLE {$schema->name} RENAME COLUMN \"{$column}\" TO \"{$newname}\";") === false) {
+                    return false;
+                } 
+            } else if ($action === 'replace') {
+                $column = array_shift($set);
+                $newname = array_shift($set);
+
+                // Replace Values from old to new column
+                if (count($set) === 0) {
+                    $query = sprintf("
+                        UPDATE %1\$s SET \"%3\$s\" = old.column
+                          FROM (
+                            SELECT \"%2\$s\" AS column, \"%4\$s\" as primary
+                              FROM %1\$s
+                          ) AS old
+                         WHERE %1\$s.%4\$s = old.primary;
+                    ", $schema->name, $column, $newname, $schema->primaryKey);
+
+                    if ($this->execute($query) === false) {
+                        return false;
+                    }
+                } else {
+
+                }
+                
+                // Remove Old Column
+                if (version_compare($this->getVersion(), '3.35', '>=')) {
+                    if ($this->connection->exec("ALTER TABLE {$schema->name} DROP COLUMN \"{$column}\";") === false) {
+                        $remove[] = $column;
+                    } 
+                } else {
+                    $remove[] = $column;
+                }
+            } else if ($action === 'remove') {
+                if (version_compare($this->getVersion(), '3.35', '>=')) {
+                    $column = array_shift($set);
+                    if ($this->connection->exec("ALTER TABLE {$schema->name} DROP COLUMN \"{$column}\";") === false) {
+                        $remove[] = $column;
+                    } 
+                } else {
+                    $remove[] = array_shift($set);
+                }
+            }
+        }
 
         // Remove Columns
+        // @info DROP COLUMN support has been added in SQLite 3.35.0, but is 
+        //       highly limited. The following method works in the most cases.
+        if (count($remove) > 0) {
+            $foreignKeys = $this->connection->query("PRAGMA foreign_keys;")->fetchArray(\SQLITE3_NUM)[0] === 1;
+
+            // Step 1 - Disable Foreign Keys
+            if ($foreignKeys) {
+                $this->connection->exec('PRAGMA foreign_keys=off;');
+            }
+
+            // Step 2 - Create new Table
+            $temptable = $schema->name . '_temp';
+            $schemaBuilder = $schema->convertToBuilder($schema->name . '_temp');
+            if ($this->create($schemaBuilder) === false) {
+                return false;
+            }
+
+            // Step 3 - Transfer records
+            $columns = array_keys($schemaBuilder->properties);
+            $query = "INSERT INTO $temptable SELECT ". implode(', ', $columns) ." FROM $schema->name;";
+            if ($this->connection->exec($query) === false) {
+                return false;
+            }
+
+            // Step 4 - Drop old Table
+            if ($this->connection->exec("DROP TABLE $schema->name;") === false) {
+                return false;
+            }
+
+            // Step 5 - Rename new table
+            if ($this->connection->exec("ALTER TABLE $temptable RENAME TO $schema->name;") === false) {
+                return false;
+            }
+
+            // Step 6 - Validate foreign keys
+            if ($foreignKeys) {
+                if ($this->connection->exec('PRAGMA foreign_key_check;') === false) {
+                    return false;
+                }
+            }
+
+            // Step 7 - Re-Enable foreign keys
+            if ($foreignKeys) {
+                $this->connection->exec('PRAGMA foreign_keys=on;');
+            }
+        }
+
+
+
+
+        // Add New Columns              [DONE]
+
+        // Rename Columns               [DONE]
+
+        // Replace Columns
+            // -> add new columns       [DONE]
+            // -> execute converter 
+            // -> remove old columns    [DONE]
+
+        // Remove Columns               [DONE]
 
         return true;
     }
@@ -412,7 +570,6 @@ class SQLite implements DriverContract
             }
             if (($result = $stmt->execute()) === false) {
                 $error = true;
-                break;
             }
         } else {
             $error = true;
@@ -460,7 +617,6 @@ class SQLite implements DriverContract
             }
             if (($result = $stmt->execute()) === false) {
                 $error = true;
-                break;
             }
         } else {
             $error = true;
