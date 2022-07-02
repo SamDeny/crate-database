@@ -1,0 +1,10 @@
+{
+    "autoload": {
+        "psr-4": {
+            "Crate\\Database\\": "src"
+        },
+        "files": [
+            "polyfill.php"
+        ]
+    }
+}
