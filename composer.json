@@ -6,5 +6,8 @@
         "files": [
             "polyfill.php"
         ]
+    },
+    "require": {
+        "symfony/polyfill-uuid": "^1.26"
     }
 }

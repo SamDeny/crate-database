@@ -260,11 +260,11 @@ class SQLite implements DriverContract
 
         // Primary Key
         if ($schema->primaryKeyFormat === 'id') {
-            $fields[$schema->primaryKey] = "'$schema->primaryKey' INTEGER PRIMARY KEY";
+            $fields[$schema->primaryKey] = "'$schema->primaryKey' INTEGER NOT NULL PRIMARY KEY";
         } else if ($schema->primaryKeyFormat === 'uid') {
-            $fields[$schema->primaryKey] = "'$schema->primaryKey' TEXT PRIMARY KEY CHECK(length(\"$schema->primaryKey\") == 26)";
+            $fields[$schema->primaryKey] = "'$schema->primaryKey' TEXT NOT NULL PRIMARY KEY CHECK(length(\"$schema->primaryKey\") == 26)";
         } else if ($schema->primaryKeyFormat === 'uuid' || $schema->primaryKeyFormat === 'uuidv4') {
-            $fields[$schema->primaryKey] = "'$schema->primaryKey' TEXT PRIMARY KEY CHECK(length(\"$schema->primaryKey\") == 36)";
+            $fields[$schema->primaryKey] = "'$schema->primaryKey' TEXT NOT NULL PRIMARY KEY CHECK(length(\"$schema->primaryKey\") == 36)";
         }
 
         // Fields
@@ -626,7 +626,7 @@ class SQLite implements DriverContract
                     $ref = 'param_' . $key;
                     $$ref = $value;
                 }
-            
+                
                 if (($result = $stmt->execute()) === false) {
                     $error = true;
                     break;

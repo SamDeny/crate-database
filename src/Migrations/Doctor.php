@@ -100,12 +100,11 @@ class Doctor
                 call_user_func(array_shift($action), $builder);
 
                 if (($status = $this->driver->create($builder)) && $builder->storage) {
-                    file_put_contents(__DIR__ . '/../../storage/schemes/' . $builder->name . '.schema.json', $builder->toJSON(true));     //@todo
+                    file_put_contents(__DIR__ . '/../../storage/schemes/' . $builder->name . '.schema.json', $builder->toJSON(true)); //@todo
                 }
             } else if ($type === 'update') {
                 $schema = Schema::get(array_shift($action));
                 $editor = new SchemaEditor($schema);
-
                 call_user_func(array_shift($action), $editor);
 
                 if ($schema->primaryKey !== $editor->primaryKey) {
@@ -113,11 +112,11 @@ class Doctor
                 }
                 
                 if (($status = $this->driver->alter($editor)) && $builder->storage) {
-                    //@todo
+                    file_put_contents(__DIR__ . '/../../storage/schemes/' . $builder->name . '.schema.json', $editor->convertToBuilder()->toJSON(true)); //@todo
                 }
             } else if ($type === 'delete') {
                 if ($status = $this->driver->drop(Schema::get(array_shift($action)))) {
-                    //@todo
+                    @unlink(__DIR__ . '/../../storage/schemes/' . $builder->name . '.schema.json'); //@todo
                 }
             } else if ($type === 'select') {
                 $schema = new Repository(array_shift($action));

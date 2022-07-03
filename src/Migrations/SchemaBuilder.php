@@ -89,6 +89,15 @@ class SchemaBuilder
     public ?string $updated = 'updated_at';
 
     /**
+     * Schema dynamic property name.
+     * Dynamic-declared Schemes can contain any values, the dynamic attribute 
+     * must be set to an dynamic object property to work.
+     *
+     * @var ?string
+     */
+    public ?string $dynamic = null;
+
+    /**
      * Schema supports multiple branches.
      *
      * @var boolean
@@ -212,6 +221,7 @@ class SchemaBuilder
             'type'              => 'object',
             'internalConfig'    => [
                 'driver'            => $this->driver,
+                'dynamic'           => $this->dynamic,
                 'branches'          => $this->branches,
                 'history'           => $this->history,
                 'document'          => $this->document,
@@ -365,7 +375,7 @@ class SchemaBuilder
         /** @var StringProperty */
         $this->properties[$name] = new StringProperty($name);
         $this->properties[$name]->format('uid');
-        $this->properties[$name]->length(26);
+        $this->properties[$name]->length(28);
         $this->properties[$name]->unique();
         return $this->properties[$name];
     }

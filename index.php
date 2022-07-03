@@ -1,5 +1,7 @@
 <?php declare(strict_types=1);
 
+use Crate\Database\Document;
+use Crate\Database\Repository;
 use Crate\Database\Schema;
 
 // Load Autoloader
@@ -22,6 +24,14 @@ function config(string $key) {
     } else {
         return null;
     }
+}
+
+// Reset
+$path = explode('?', $_SERVER["REQUEST_URI"])[0];
+if ($path === '/reset') {
+    @unlink(__DIR__ . '/storage/temp.sqlite');
+    header('Location: /?install=1');
+    die();
 }
 
 ?><!DOCTYPE html>
@@ -49,30 +59,65 @@ function config(string $key) {
             padding: 50px;
             margin: 100px auto;
         }
+        header {
+            display: flex;
+            justify-content: flex-end;
+        }
+        article {
+            margin-top: 50px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <header>
+            <a href="/reset">Reset</a>
+        </header>
+        
+        <article>
         <?php 
-            $doctor = new \Crate\Database\Migrations\Doctor;
 
-            $status = $doctor->execute('core', __DIR__ . '/migrations/000.php');
-            if ($status) {
-                var_dump('YaY');
-            } else {
-                var_dump($doctor->lastError());
-            }
-            echo "<br /><br />";
+            if (($_GET['install'] ?? '0') === '1') {
+                $doctor = new \Crate\Database\Migrations\Doctor;
 
-            $status = $doctor->execute('core', __DIR__ . '/migrations/001.php');
-            if ($status) {
-                var_dump('YaY');
-            } else {
-                var_dump($doctor->lastError());
+                $status = $doctor->execute('core', __DIR__ . '/migrations/000_migrations-table.php');
+                if ($status) {
+                    var_dump('YaY');
+                } else {
+                    var_dump($doctor->lastError());
+                }
+                echo "<br /><br />";
+
+                $status = $doctor->execute('core', __DIR__ . '/migrations/001_test-migrator-methods.php');
+                if ($status) {
+                    var_dump('YaY');
+                } else {
+                    var_dump($doctor->lastError());
+                }
+                echo "<br /><br />";
+
+                $status = $doctor->execute('core', __DIR__ . '/migrations/002_users-strict-document.php');
+                if ($status) {
+                    var_dump('YaY');
+                } else {
+                    var_dump($doctor->lastError());
+                }
+                echo "<br /><br />";
             }
-            echo "<br /><br />";
+            $repo = new Repository('users');
+
+            $user = new Document;
+            $user->username = 'username';
+            $user->email = 'email@info.com';
+            $user->display_name = 'Display Name';
+            if ($repo->validate($user)) {
+                var_dump($repo->insert($user));
+            } else {
+                throw new \Exception('Document is invalid!');
+            }
 
         ?>
+        </article>
     </div>
 </body>
 </html>

@@ -69,7 +69,7 @@ class Schema
      */
     public function __get(string $name): mixed
     {
-        if (strpos($name, '0') === '_') {
+        if ($name[0] === '_') {
             $name = '$' . substr($name, 1);
         }
 
@@ -77,17 +77,25 @@ class Schema
             return $this->schema->internalProperties->primary;
         } else if ($name === 'primaryKeyFormat') {
             $primaryKey = $this->schema->internalProperties->primary;
-            return $this->schema->properties->{$primaryKey}->foramt;
+            return $this->schema->properties->{$primaryKey}->format;
         } else if ($name === 'created') {
             return $this->schema->internalProperties->created;
         } else if ($name === 'updated') {
             return $this->schema->internalProperties->updated;
+        } else if ($name === 'dynamic') {
+            return $this->schema->internalProperties->dynamic;
         }
 
         if (property_exists($this->schema, $name)) {
             return $this->schema->$name;
         } else {
-            return null;
+            if (property_exists($this->schema->internalConfig, $name)) {
+                return $this->schema->internalConfig->$name;
+            } else {
+                var_dump($name);
+                die();
+                return null;
+            }
         }
     }
 
@@ -99,8 +107,8 @@ class Schema
      */
     public function supports(string $key): bool
     {
-        if (array_key_exists($key, $this->schema->details)) {
-            return is_bool($this->schema->details[$key])? $this->schema->details[$key]: false;
+        if (property_exists($this->schema->internalConfig, $key)) {
+            return is_bool($this->schema->internalConfig->{$key})? $this->schema->internalConfig->{$key}: false;
         } else {
             return false;
         }

@@ -85,9 +85,7 @@ return new class implements MigrationContract {
         // Ensures that the above command is executed before the next statement is called
         $migrator->commit();
 
-        //$migrator->select('test', function (Repository $repo) {
-//
-        //});
+        $migrator->delete('test');
 
     }
     

@@ -2,6 +2,8 @@
 
 namespace Crate\Database;
 
+use Crate\Database\Contracts\DriverContract;
+
 class Repository
 {
 
@@ -18,6 +20,20 @@ class Repository
      * @var string
      */
     protected string $branch;
+
+    /**
+     * Repository Driver Provider
+     *
+     * @var string
+     */    
+    protected string $provider;
+
+    /**
+     * Repository Driver Instance
+     *
+     * @var DriverContract
+     */
+    protected DriverContract $driver;
 
     /**
      * Create a new Repository instance.
@@ -41,6 +57,21 @@ class Repository
             throw new \Exception("The passed schema '$schema' does not support different branches.");
         }
         $this->branch = $branch ?? 'default';
+
+        // Build Driver
+        //@todo
+        if ($schema->driver === 'default' || $schema->driver === 'crate') {
+            $driver = config('database.' . $schema->driver);
+        } else {
+            $driver = $schema->driver;
+        }
+
+        $config = config('database.drivers.' . $driver);
+        $provider = $config['provider'];
+        unset($config['provider']);
+
+        $this->provider = $provider;
+        $this->driver = new $this->provider(...$config);
     }
 
     /**
@@ -72,6 +103,18 @@ class Repository
     }
 
     /**
+     * Validates a single document depending on the assigned Schema.
+     *
+     * @param Document $document
+     * @return boolean
+     */
+    public function validate(Document $document): bool
+    {
+        //@todo
+        return true;
+    }
+
+    /**
      * Select a single document by passing it's unique identifier.
      *
      * @param string $id
@@ -83,10 +126,10 @@ class Repository
         $query->where($this->schema->primaryKey, $id);
         $query->limit(1);
         
-        $result = $this->driver->selectOne($query);
+        $result = $this->driver->select($this->schema->name, $query);
         if ($result) {
             $document = new Document($this->schema);
-            return $document->fill($result);
+            return $document->fill($result[0]);
         } else {
             return null;
         }
@@ -107,7 +150,7 @@ class Repository
         $query->limit($limit);
         $query->offset($offset);
 
-        $results = $this->driver->select($query);
+        $results = $this->driver->select($this->schema->name, $query);
         if ($results) {
             $documents = array_map(fn($result) => (new Document($this->schema))->fill($result), $results);
             return $documents;
@@ -124,7 +167,7 @@ class Repository
      */
     public function query(Query $query)
     {
-        $results = $this->driver->select($query);
+        $results = $this->driver->select($this->schema->name, $query);
         if ($results) {
             $documents = array_map(fn($result) => (new Document($this->schema))->fill($result), $results);
             return $documents;
@@ -139,9 +182,26 @@ class Repository
      * @param array|Document $documents
      * @return int
      */
-    public function insert(array|Document $documents)
+    public function insert(array|Document $documents): int
     {
+        $documents = !is_array($documents)? [$documents]: $documents;
 
+        $results = [];
+        foreach ($documents AS $document) {
+            $result = $document->toArray();
+
+            if ($this->schema->primaryKeyFormat !== 'id') {
+                if ($this->schema->primaryKeyFormat === 'uid') {
+                    $result[$this->schema->primaryKey] = bin2hex(random_bytes(14));
+                } else if ($this->schema->primaryKeyFormat === 'uuid') {
+                    $result[$this->schema->primaryKey] = uuid_create(\UUID_TYPE_TIME);
+                }
+            }
+
+            $results[] = $result;
+        }
+
+        return $this->driver->insert($this->schema->name, $results);
     }
 
     /**
@@ -152,7 +212,26 @@ class Repository
      */
     public function update(array|Document $documents)
     {
+        $primaryKey = $this->schema->primaryKey;
+        $documents = !is_array($documents)? [$documents]: $documents;
 
+        $count = 0;
+        foreach ($documents AS $document) {
+            $result = $document->toArray();
+            $where = [$primaryKey => $result[$primaryKey]];
+            
+            unset($result[$primaryKey]);
+            if ($this->schema->created) {
+                unset($result[$this->schema->created]);
+            }
+            if ($this->schema->updated) {
+                unset($result[$this->schema->updated]);
+            }
+
+            $count += $this->driver->update($this->schema->name, $result, $where);
+        }
+
+        return $count;
     }
 
     /**

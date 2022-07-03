@@ -62,6 +62,7 @@ class SchemaEditor extends SchemaBuilder
         $this->primaryKeyFormat = $schema->properties->{$this->primaryKey}->format;
         $this->created = $schema->internalProperties->created;
         $this->updated = $schema->internalProperties->updated;
+        $this->dynamic = $schema->internalConfig->dynamic;
         $this->branches = $schema->internalConfig->branches;
         $this->history = $schema->internalConfig->history;
         $this->document = $schema->internalConfig->document;
@@ -239,6 +240,7 @@ class SchemaEditor extends SchemaBuilder
         $schema->primaryKeyFormat = $this->primaryKeyFormat;
         $schema->created = $this->created;
         $schema->updated = $this->updated;
+        $schema->dynamic = $this->dynamic;
         $schema->branches = $this->branches;
         $schema->history = $this->history;
         $schema->document = $this->document;
