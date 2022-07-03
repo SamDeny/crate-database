@@ -95,8 +95,6 @@ class Doctor
         foreach ($migrator->getMigrations() AS $action) {
             $type = array_shift($action);
 
-            echo $type;
-
             if ($type === 'create') {
                 $builder = new SchemaBuilder(array_shift($action));
                 call_user_func(array_shift($action), $builder);
@@ -105,8 +103,14 @@ class Doctor
                     file_put_contents(__DIR__ . '/../../storage/schemes/' . $builder->name . '.schema.json', $builder->toJSON(true));     //@todo
                 }
             } else if ($type === 'update') {
-                $editor = new SchemaEditor(Schema::get(array_shift($action)));
+                $schema = Schema::get(array_shift($action));
+                $editor = new SchemaEditor($schema);
+
                 call_user_func(array_shift($action), $editor);
+
+                if ($schema->primaryKey !== $editor->primaryKey) {
+                    throw new \Exception('You cannot change the primary key on an existing Schema.'); //@todo
+                }
                 
                 if (($status = $this->driver->alter($editor)) && $builder->storage) {
                     //@todo

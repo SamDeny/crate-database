@@ -310,10 +310,40 @@ class SQLite implements DriverContract
      */
     public function alter(SchemaEditor $schema): bool
     {
-        $remove = [];
+        $dropSupport = version_compare($this->getVersion(), '3.35', '>=');
 
-        // Add Columns
-        foreach ($schema->properties AS $name => $property) {
+        // Tasks
+        $create = $schema->properties;  // Create new Properties
+        $change = [];                   // Change Property definitions
+        $rename = [];                   // Rename Properties
+        $remove = [];                   // Remove Properties
+
+        $time = '_' . time();
+        foreach ($schema->changedProperties AS $changes) {
+            if ($changes[1] === null) {
+                $remove[] = $changes[0];
+            } else {
+                if (count($changes) === 3) {
+                    // SQLite does not support altering columns, thus we create changed columns 
+                    // under a temporary name, replace them and rename them afterwards if necessary.
+                    $propname = $changes[1]->name;
+                    if (!array_key_exists($propname, $create)) {
+                        $changes[1]->name = $propname . $time;
+
+                        $create[$changes[1]->name] = $changes[1];
+                        $change[] = [$changes[1]->name, $changes[1], $changes[2]];
+                        $rename[] = [$changes[1]->name, $propname];
+                    } else {
+                        $change[] = $changes;
+                    }
+                } else {
+                    $rename[] = [$changes[0], $changes[1]->name];
+                }
+            }
+        }
+
+        // Create Columns
+        foreach ($create AS $name => $property) {
             $field = $this->buildColumn($name, $property);
             $query = "ALTER TABLE {$schema->name} ADD COLUMN $field";
             if ($this->execute($query) === false) {
@@ -321,75 +351,136 @@ class SQLite implements DriverContract
             }
         }
 
-        // Created internal field
-        if ($schema->created !== $schema->originalSchema->created) {
-            //@todo -> Check if created has added or changed
+        // Handle internal Date/Time columns
+        foreach (['created', 'updated'] AS $column) {
+            $old = $schema->originalSchema->{$column};
+            $new = $schema->{$column};
+            if ($old === $new) {
+                continue;   // No changes made
+            }
 
-        }
-
-        // Updated Internal field
-        if ($schema->updated !== $schema->originalSchema->updated) {
-            //@todo -> Check if updated has added or changed
-
-        }
-
-        // Change columns
-        foreach ($schema->changedProperties AS $set) {
-            $action = array_shift($set);
-
-            if ($action === 'rename') {
-                $column = array_shift($set);
-                $newname = array_shift($set);
-                if ($this->execute("ALTER TABLE {$schema->name} RENAME COLUMN \"{$column}\" TO \"{$newname}\";") === false) {
+            // Column has been added
+            if ($old === null) {
+                if ($column === 'created') {
+                    $query = "ALTER TABLE {$schema->name} ADD COLUMN '$new' TEXT DEFAULT (DATETIME('NOW'));";
+                } else {
+                    $query = "
+                        ALTER TABLE {$schema->name} ADD COLUMN '$new' TEXT NULL;
+                        CREATE TRIGGER {$schema->name}_{$new} AFTER UPDATE ON {$schema->name}
+                          BEGIN
+                            UPDATE {$schema->name} SET {$new} = DATETIME('NOW') WHERE {$schema->primaryKey} = NEW.{$schema->primaryKey};
+                          END;
+                    ";
+                }
+                if ($this->connection->exec($query) === false) {
                     return false;
-                } 
-            } else if ($action === 'replace') {
-                $column = array_shift($set);
-                $newname = array_shift($set);
+                } else {
+                    continue;
+                }
+            }
 
-                // Replace Values from old to new column
-                if (count($set) === 0) {
-                    $query = sprintf("
-                        UPDATE %1\$s SET \"%3\$s\" = old.column
-                          FROM (
-                            SELECT \"%2\$s\" AS column, \"%4\$s\" as primary
-                              FROM %1\$s
-                          ) AS old
-                         WHERE %1\$s.%4\$s = old.primary;
-                    ", $schema->name, $column, $newname, $schema->primaryKey);
-
-                    if ($this->execute($query) === false) {
+            // Column has been removed
+            if ($new === null) {
+                $remove[] = $old;
+                if ($column === 'updated') {
+                    if ($this->connection->exec("DROP TRIGGER {$schema->name}_{$old}") === false) {
                         return false;
                     }
-                } else {
+                }
+                continue;
+            }
 
+            // Column name has been changed
+            if ($column === 'updated') {
+                if ($this->connection->exec("DROP TRIGGER {$schema->name}_{$old}") === false) {
+                    return false;
                 }
-                
-                // Remove Old Column
-                if (version_compare($this->getVersion(), '3.35', '>=')) {
-                    if ($this->connection->exec("ALTER TABLE {$schema->name} DROP COLUMN \"{$column}\";") === false) {
-                        $remove[] = $column;
-                    } 
-                } else {
-                    $remove[] = $column;
-                }
-            } else if ($action === 'remove') {
-                if (version_compare($this->getVersion(), '3.35', '>=')) {
-                    $column = array_shift($set);
-                    if ($this->connection->exec("ALTER TABLE {$schema->name} DROP COLUMN \"{$column}\";") === false) {
-                        $remove[] = $column;
-                    } 
-                } else {
-                    $remove[] = array_shift($set);
-                }
+            }
+            if ($this->connection->exec("ALTER TABLE {$schema->name} RENAME COLUMN {$old} TO {$new};") === false) {
+                return false;
+            }
+            if ($column === 'updated') {
+                $query .= "
+                    CREATE TRIGGER {$schema->name}_{$new} AFTER UPDATE ON {$schema->name}
+                      BEGIN
+                        UPDATE {$schema->name} SET {$new} = DATETIME('NOW') WHERE {$schema->primaryKey} = NEW.{$schema->primaryKey};
+                      END;
+                ";
+                $this->connection->exec($query);
             }
         }
 
+        // Change Columns
+        foreach ($change AS $details) {
+            $column = $details[0];
+            $property = $details[1];
+            $converter = $details[2];
+
+            if ($converter === null) {
+                $query = sprintf("
+                    UPDATE %1\$s SET \"%3\$s\" = old.__column
+                      FROM (
+                        SELECT \"%2\$s\" AS __column, \"%4\$s\" as __primary
+                          FROM %1\$s
+                      ) AS old
+                     WHERE %1\$s.%4\$s = old.__primary;
+                ", $schema->name, $column, $property->name, $schema->primaryKey);
+
+                if ($this->execute($query) === false) {
+                    return false;
+                } else {
+                    $remove[] = $column;
+                    continue;
+                }
+            } else {
+                $query = $this->connection->query("SELECT * FROM {$schema->name};");
+                if ($query === false) {
+                    return false;
+                }
+
+                while (($row = $query->fetchArray(\SQLITE3_ASSOC)) !== false) {
+                    $newValue = $converter($row[$column], $row);
+
+                    $stmt = $this->connection->prepare(
+                        "UPDATE {$schema->name} SET {$property->name} = ?
+                          WHERE {$schema->primaryKey} = ?;"
+                    );
+                    if (!$stmt) {
+                        return false;
+                    }
+                    
+                    $stmt->bindValue(0, $newValue);
+                    $stmt->bindValue(1, $row[$schema->primaryKey]);
+                    if ($stmt->execute() === false) {
+                        return false;
+                    }
+                }
+                $remove[] = $column;
+            }
+        }
+
+        // Rename Columns
+        foreach ($rename AS $details) {
+            if ($this->execute("ALTER TABLE {$schema->name} RENAME COLUMN \"{$details[0]}\" TO \"{$details[1]}\";") === false) {
+                return false;
+            } 
+        }
+
         // Remove Columns
+        if ($dropSupport) {
+            foreach ($remove AS &$column) {
+                if (@$this->connection->exec("ALTER TABLE {$schema->name} DROP COLUMN \"{$column}\";") !== false) {
+                    $column = null;
+                }
+            }
+            $remove = array_filter($remove);
+        }
+
+        // Remove Columns [Fallback Method]
         // @info DROP COLUMN support has been added in SQLite 3.35.0, but is 
         //       highly limited. The following method works in the most cases.
         if (count($remove) > 0) {
-            $foreignKeys = $this->connection->query("PRAGMA foreign_keys;")->fetchArray(\SQLITE3_NUM)[0] === 1;
+            $foreignKeys = $this->connection->querySingle("PRAGMA foreign_keys;") === 1;
 
             // Step 1 - Disable Foreign Keys
             if ($foreignKeys) {
@@ -399,12 +490,20 @@ class SQLite implements DriverContract
             // Step 2 - Create new Table
             $temptable = $schema->name . '_temp';
             $schemaBuilder = $schema->convertToBuilder($schema->name . '_temp');
+            $schemaBuilder->name = $temptable;
             if ($this->create($schemaBuilder) === false) {
                 return false;
             }
 
             // Step 3 - Transfer records
-            $columns = array_keys($schemaBuilder->properties);
+            $columns = [$schema->primaryKey, ...array_keys($schemaBuilder->properties)];
+            if ($schema->created) {
+                $columns[] = $schema->created;
+            }
+            if ($schema->updated) {
+                $columns[] = $schema->updated;
+            }
+
             $query = "INSERT INTO $temptable SELECT ". implode(', ', $columns) ." FROM $schema->name;";
             if ($this->connection->exec($query) === false) {
                 return false;
@@ -432,21 +531,6 @@ class SQLite implements DriverContract
                 $this->connection->exec('PRAGMA foreign_keys=on;');
             }
         }
-
-
-
-
-        // Add New Columns              [DONE]
-
-        // Rename Columns               [DONE]
-
-        // Replace Columns
-            // -> add new columns       [DONE]
-            // -> execute converter 
-            // -> remove old columns    [DONE]
-
-        // Remove Columns               [DONE]
-
         return true;
     }
 
@@ -455,7 +539,48 @@ class SQLite implements DriverContract
      */
     public function drop(Schema $schema): bool
     {
-        return true;
+
+        // Delete Branches, if enabled
+        if ($schema->supports('branches')) {
+            $query = $this->connection->query("
+                SELECT name FROM sqlite_schema 
+                 WHERE type='table' AND name LIKE '{$schema->name}_branch_%';
+            ");
+            if ($query === false) {
+                return false;
+            }
+
+            while (($row = $query->fetchArray(\SQLITE3_ASSOC)) !== false) {
+                if ($this->execute("DROP TABLE {$row['name']};") === false) {
+                    return false;
+                }
+            }
+        }
+        
+        // Delete Revisions, if enabled
+        if ($schema->supports('revisions')) {
+            $query = $this->connection->query("
+                SELECT name FROM sqlite_schema 
+                 WHERE type='table' AND name='{$schema->name}_revisions';
+            ");
+            if ($query === false) {
+                return false;
+            }
+
+            while (($row = $query->fetchArray(\SQLITE3_ASSOC)) !== false) {
+                if ($this->execute("DROP TABLE {$row['name']};") === false) {
+                    return false;
+                }
+            }
+        }
+
+        // Drop Main Table
+        if ($this->execute("DROP TABLE {$schema->name};") === false) {
+            return false;
+        } else {
+            return true;
+        }
+
     }
 
     /**

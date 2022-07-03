@@ -7,17 +7,11 @@ use Crate\Database\Properties\BooleanProperty;
 use Crate\Database\Properties\IntegerProperty;
 use Crate\Database\Properties\NumberProperty;
 use Crate\Database\Properties\ObjectProperty;
+use Crate\Database\Properties\Property;
 use Crate\Database\Properties\StringProperty;
 
 class SchemaBuilder
 {
-
-    /**
-     * Schema Database driver.
-     *
-     * @var string
-     */
-    public string $driver = 'default';
 
     /**
      * The Schema storage is required to be used within the Repository system. 
@@ -29,11 +23,25 @@ class SchemaBuilder
     public bool $storage = true;
 
     /**
+     * Schema Database driver.
+     *
+     * @var string
+     */
+    public string $driver = 'default';
+
+    /**
      * Schema ID
      *
      * @var string|null
      */
     public ?string $id = null;
+
+    /**
+     * Schema Name
+     *
+     * @var string
+     */
+    public string $name;
 
     /**
      * Schema Title
@@ -58,10 +66,9 @@ class SchemaBuilder
 
     /**
      * Schema Primary Key property format. Possible values:
-     * 'id'         Increment integer
+     * 'id'         Increment Digit
      * 'uid'        Random Unique ID
-     * 'uuid'       Random Universally unique identifier
-     * 'uuidv4'     V4 Universally unique identifier
+     * 'uuid'       Random Universally Unique IDentifier v4
      *
      * @var string
      */
@@ -127,7 +134,7 @@ class SchemaBuilder
     }
 
     /**
-     * Export Schema as JSON Schema
+     * String Representation of this Schema.
      *
      * @return string
      */
@@ -159,17 +166,15 @@ class SchemaBuilder
         $properties = [];
         $required = [];
 
-        // Primary Key
+        // Primary Key Property
         if ($this->primaryKeyFormat === 'id') {
             $properties[$this->primaryKey] = [
-                'type' => 'integer',
-                'internal' => true
+                'type' => 'integer'
             ];
         } else {
             $properties[$this->primaryKey] = [
                 'type' => 'string',
-                'format' => $this->primaryKey,
-                'internal' => true
+                'format' => $this->primaryKeyFormat
             ];
         }
 
@@ -181,44 +186,44 @@ class SchemaBuilder
             $properties[$name] = $property->toArray()[$name];
         }
 
-        // Created
+        // Created Property
         if ($this->created) {
             $properties[$this->created] = [
                 'type' => 'string',
-                'format' => 'date-time',
-                'internal' => true
+                'format' => 'date-time'
             ];
         }
 
-        // Updated
+        // Updated Property
         if ($this->updated) {
             $properties[$this->updated] = [
                 'type' => 'string',
-                'format' => 'date-time',
-                'internal' => true
+                'format' => 'date-time'
             ];
         }
 
         // Return Schema 
         return [
-            '$schema'       => "https://json-schema.org/draft/2020-12/schema",
-            '$id'           => $this->id ?? 'custom_' . $this->name,
-            'name'          => $this->name,
-            'title'         => $this->title ?? $this->name,
-            'description'   => $this->description ?? '',
-            'type'          => 'object',
-            'options'       => [
+            '$schema'           => "https://json-schema.org/draft/2020-12/schema",
+            '$id'               => $this->id ?? 'custom_' . $this->name,
+            'name'              => $this->name,
+            'title'             => $this->title ?? $this->name,
+            'description'       => $this->description ?? '',
+            'type'              => 'object',
+            'internalConfig'    => [
                 'driver'            => $this->driver,
-                'primaryKey'        => $this->primaryKey,
-                'primaryKeyFormat'  => $this->primaryKeyFormat,
-                'created'           => $this->created,
-                'updated'           => $this->updated,
                 'branches'          => $this->branches,
                 'history'           => $this->history,
-                'document'          => $this->document
+                'document'          => $this->document,
+                'uniques'           => $this->uniques
             ],
-            'properties'    => $properties,
-            'required'      => $required
+            'internalProperties'=> [
+                'primary'           => $this->primaryKey,
+                'created'           => $this->created,
+                'updated'           => $this->updated
+            ],
+            'properties'        => $properties,
+            'required'          => $required
         ];
     }
 
@@ -255,6 +260,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var StringProperty */
         $this->properties[$name] = new StringProperty($name);
         return $this->properties[$name];
     }
@@ -271,6 +277,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var ArrayProperty */
         $this->properties[$name] = new ArrayProperty($name);
         return $this->properties[$name];
     }
@@ -287,6 +294,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var ObjectProperty */
         $this->properties[$name] = new ObjectProperty($name);
         return $this->properties[$name];
     }
@@ -303,6 +311,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var NumberProperty */
         $this->properties[$name] = new NumberProperty($name);
         return $this->properties[$name];
     }
@@ -319,6 +328,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var IntegerProperty */
         $this->properties[$name] = new IntegerProperty($name);
         return $this->properties[$name];
     }
@@ -335,6 +345,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
         
+        /** @var BooleanProperty */
         $this->properties[$name] = new BooleanProperty($name);
         return $this->properties[$name];
     }
@@ -351,6 +362,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var StringProperty */
         $this->properties[$name] = new StringProperty($name);
         $this->properties[$name]->format('uid');
         $this->properties[$name]->length(26);
@@ -370,6 +382,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
         
+        /** @var StringProperty */
         $this->properties[$name] = new StringProperty($name);
         $this->properties[$name]->format('uuid');
         $this->properties[$name]->length(36);
@@ -389,6 +402,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var StringProperty */
         $this->properties[$name] = new IntegerProperty($name);
         $this->properties[$name]->format('timestamp');
         $this->properties[$name]->unsigned();
@@ -407,6 +421,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var StringProperty */
         $this->properties[$name] = new StringProperty($name);
         $this->properties[$name]->format('time');
         return $this->properties[$name];
@@ -424,6 +439,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var StringProperty */
         $this->properties[$name] = new StringProperty($name);
         $this->properties[$name]->format('date');
         return $this->properties[$name];
@@ -441,6 +457,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var StringProperty */
         $this->properties[$name] = new StringProperty($name);
         $this->properties[$name]->format('date-time');
         return $this->properties[$name];
@@ -459,6 +476,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var StringProperty */
         $this->properties[$name] = new StringProperty($name);
         $this->properties[$name]->format($rfc6531? 'idn-email': 'email');
         return $this->properties[$name];
@@ -476,6 +494,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var StringProperty */
         $this->properties[$name] = new StringProperty($name);
         $this->properties[$name]->format('ipv4');
         return $this->properties[$name];
@@ -493,6 +512,7 @@ class SchemaBuilder
             throw new \Exception("The property name '$name' does already exist.");  //@todo
         }
 
+        /** @var StringProperty */
         $this->properties[$name] = new StringProperty($name);
         $this->properties[$name]->format('ipv6');
         return $this->properties[$name];

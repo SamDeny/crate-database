@@ -73,6 +73,17 @@ class Schema
             $name = '$' . substr($name, 1);
         }
 
+        if ($name === 'primaryKey') {
+            return $this->schema->internalProperties->primary;
+        } else if ($name === 'primaryKeyFormat') {
+            $primaryKey = $this->schema->internalProperties->primary;
+            return $this->schema->properties->{$primaryKey}->foramt;
+        } else if ($name === 'created') {
+            return $this->schema->internalProperties->created;
+        } else if ($name === 'updated') {
+            return $this->schema->internalProperties->updated;
+        }
+
         if (property_exists($this->schema, $name)) {
             return $this->schema->$name;
         } else {
